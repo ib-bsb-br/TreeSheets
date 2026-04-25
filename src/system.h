@@ -1,0 +1,574 @@
+struct System {
+    TSFrame *frame;
+    wxString defaultfont {
+        #ifdef WIN32
+            "Lucida Sans Unicode"
+        #else
+            "Verdana"
+        #endif
+    };
+    wxString defaultfixedfont {"Courier New"};
+    wxString defaultlang {wxEmptyString};
+    wxString searchstring;
+    unique_ptr<wxConfigBase> cfg;
+    Evaluator evaluator;
+    wxString clipboardcopy;
+    unique_ptr<Cell> cellclipboard;
+    vector<unique_ptr<Image>> imagelist;
+    vector<int> loadimageids;
+    uchar versionlastloaded {0};
+    wxLongLong fakelasteditonload;
+    wxPen pen_tinytext {wxColour(0x808080ul)};
+    wxPen pen_gridborder {wxColour(0xb5a6a4)};
+    wxPen pen_tinygridlines {wxColour(0xf2dcd8)};
+    wxPen pen_gridlines {wxColour(0xe5b7b0)};
+    wxPen pen_thinselect {*wxLIGHT_GREY};
+    int roundness {3};
+    int defaultmaxcolwidth {80};
+    bool makebaks {true};
+    bool totray {false};
+    bool autosave {true};
+    bool zoomscroll {false};
+    bool thinselc {true};
+    bool minclose {false};
+    bool singletray {false};
+    bool startminimized {false};
+    bool centered {true};
+    bool fswatch {true};
+    int autohtmlexport {0};
+    bool casesensitivesearch {true};
+    bool darkennonmatchingcells {false};
+    bool fastrender {true};
+    bool showtoolbar {true};
+    bool showstatusbar {true};
+    bool followdarkmode {false};
+    uint colormask {0};
+    int notesizex {300};
+    int notesizey {255};
+    std::set<wxString> watchedpaths;
+    bool insidefiledialog {false};
+    struct TimerStruct : wxTimer {
+        void Notify() {
+            sys->SaveCheck();
+            sys->cfg->Flush();
+        }
+    } every_second_timer;
+    int lastcellcolor {0xFFFFFF};
+    int lasttextcolor {0};
+    int lastbordcolor {0xA0A0A0};
+    Image *lastimage {nullptr};
+    int customcolor {0xFFFFFF};
+    int cursorcolor {0x00FF00};
+
+    System(bool portable)
+        : cfg(portable
+                  ? (wxConfigBase *)new wxFileConfig("", "", wxGetCwd() + "/TreeSheets.ini", "", 0)
+                  : (wxConfigBase *)new wxConfig("TreeSheets")) {
+        static const wxDash glpattern[] = {1, 3};
+        pen_gridlines.SetDashes(2, glpattern);
+        pen_gridlines.SetStyle(wxPENSTYLE_USER_DASH);
+        static const wxDash tspattern[] = {2, 4};
+        pen_thinselect.SetDashes(2, tspattern);
+        pen_thinselect.SetStyle(wxPENSTYLE_USER_DASH);
+
+        roundness = static_cast<int>(cfg->Read("roundness", roundness));
+        autohtmlexport = static_cast<int>(cfg->Read("autohtmlexport", autohtmlexport));
+        defaultfont = cfg->Read("defaultfont", defaultfont);
+        defaultfixedfont = cfg->Read("defaultfixedfont", defaultfixedfont);
+        defaultlang = cfg->Read("defaultlang", defaultlang);
+        cfg->Read("defaultmaxcolwidth", &defaultmaxcolwidth, defaultmaxcolwidth);
+        cfg->Read("makebaks", &makebaks, makebaks);
+        cfg->Read("totray", &totray, totray);
+        cfg->Read("zoomscroll", &zoomscroll, zoomscroll);
+        cfg->Read("thinselc", &thinselc, thinselc);
+        cfg->Read("autosave", &autosave, autosave);
+        cfg->Read("fastrender", &fastrender, fastrender);
+        cfg->Read("followdarkmode", &followdarkmode, followdarkmode);
+        cfg->Read("minclose", &minclose, minclose);
+        cfg->Read("singletray", &singletray, singletray);
+        cfg->Read("startminimized", &startminimized, startminimized);
+        cfg->Read("centered", &centered, centered);
+        cfg->Read("fswatch", &fswatch, fswatch);
+        cfg->Read("casesensitivesearch", &casesensitivesearch, casesensitivesearch);
+        cfg->Read("defaultfontsize", &g_deftextsize, g_deftextsize);
+        cfg->Read("customcolor", &customcolor, customcolor);
+        cfg->Read("cursorcolor", &cursorcolor, cursorcolor);
+        cfg->Read("showtoolbar", &showtoolbar, showtoolbar);
+        cfg->Read("showstatusbar", &showstatusbar, showstatusbar);
+        cfg->Read("notesizex", &notesizex, notesizex);
+        cfg->Read("notesizey", &notesizey, notesizey);
+        cfg->Read("lastcellcolor", &lastcellcolor, lastcellcolor);
+        cfg->Read("lasttextcolor", &lasttextcolor, lasttextcolor);
+        cfg->Read("lastbordcolor", &lastbordcolor, lastbordcolor);
+        // fsw.Connect(wxID_ANY, wxID_ANY, wxEVT_FSWATCHER,
+        // wxFileSystemWatcherEventHandler(System::OnFileChanged));
+        colormask = (followdarkmode && wxSystemSettings::GetAppearance().IsDark()) ? 0x00FFFFFF : 0;
+    }
+
+    Document *NewTabDoc(bool append = false, int insert_at = -1) {
+        auto doc = make_unique<Document>();
+        auto canvas = frame->NewTab(std::move(doc), append, insert_at);
+        return canvas->doc.get();
+    }
+
+    void TabChange(Document *newdoc) {
+        // SetSelect(hover = Selection());
+        newdoc->canvas->SetFocus();
+        newdoc->UpdateFileName();
+    }
+
+    void Init(const wxString &filename) {
+        evaluator.Init();
+
+        auto numfiles = static_cast<int>(cfg->Read("numopenfiles", static_cast<long>(0)));
+        wxString focusfile = cfg->Read("lastopenfile", "");
+        int selection = -1;
+        loop(i, numfiles) {
+            wxString filename;
+            cfg->Read(wxString::Format("lastopenfile_%d", i), &filename);
+            if (!LoadDB(filename) && filename == focusfile) selection = i;
+        }
+
+        if (!filename.IsEmpty()) {
+            LoadDB(filename);
+        } else if (selection >= 0) {
+            frame->notebook->SetSelection(selection);
+        }
+
+        if (!frame->notebook->GetPageCount()) LoadTutorial();
+
+        if (!frame->notebook->GetPageCount()) InitDB(10);
+
+        // Refresh();
+        every_second_timer.Start(1000);
+    }
+
+    void LoadTutorial() {
+        auto trans = wxTranslations::Get();
+        auto language = trans ? trans->GetBestTranslation("ts") : wxString("");
+
+        if (language.Len() == 5 &&
+            !LoadDB(frame->app->GetDocPath("examples/tutorial-" + language + ".cts"))[0]) {
+            return;
+        }
+
+        language.Truncate(2);
+        if (language.Len() == 2 &&
+            !LoadDB(frame->app->GetDocPath("examples/tutorial-" + language + ".cts"))[0]) {
+            return;
+        }
+
+        LoadDB(frame->app->GetDocPath("examples/tutorial.cts"));
+    }
+
+    void LoadOpRef() { LoadDB(frame->app->GetDocPath("examples/operation-reference.cts")); }
+
+    unique_ptr<Cell> &InitDB(int sizex, int sizey = 0) {
+        unique_ptr<Cell> c = make_unique<Cell>(nullptr, nullptr, CT_DATA, new Grid(sizex, sizey ? sizey : sizex));
+        c->cellcolor = 0xCCDCE2;
+        c->grid->InitCells();
+        auto doc = NewTabDoc();
+        doc->InitWith(std::move(c), "", nullptr, 1, 1);
+        return doc->root;
+    }
+
+    wxString BakName(const wxString &filename) { return ExtName(filename, ".bak"); }
+    wxString TmpName(const wxString &filename) { return ExtName(filename, ".tmp"); }
+    wxString NewName(const wxString &filename) { return filename + ".new"; }
+    wxString ExtName(const wxString &filename, auto ext) {
+        wxFileName fn(filename);
+        return fn.GetPathWithSep() + fn.GetName() + ext;
+    }
+
+    wxString LoadDB(const wxString &filename, bool fromreload = false, int insert_at = -1) {
+        auto fn = filename;
+        auto loadedfromtmp = false;
+
+        if (!fromreload) {
+            if (frame->GetTabByFileName(filename))
+                return wxEmptyString;  //"this file is already loaded";
+
+            if (::wxFileExists(TmpName(filename))) {
+                if (::wxMessageBox(
+                        _("A temporary autosave file exists, would you like to load it instead?"),
+                        _("Autosave load"), wxYES_NO, frame) == wxYES) {
+                    fn = TmpName(filename);
+                    loadedfromtmp = true;
+                }
+            }
+        }
+
+        Document *doc = nullptr;
+        auto anyimagesfailed = false;
+        auto start_loading_time = wxGetLocalTimeMillis();
+        int zoomlevel = 0;
+
+        {  // limit destructors
+            wxBusyCursor wait;
+            Cell *ics = nullptr;
+            wxFFileInputStream fis(fn);
+            wxDataInputStream dis(fis);
+            if (!fis.IsOk()) {
+                for (int i = 0, n = frame->filehistory.GetCount(); i < n; i++) {
+                    if (frame->filehistory.GetHistoryFile(i) == filename)
+                        frame->filehistory.RemoveFileFromHistory(i);
+                }
+                return _("Cannot open file.");
+            }
+
+            char buf[4];
+            fis.Read(buf, 4);
+            if (strncmp(buf, "TSFF", 4)) return _("Not a TreeSheets file.");
+            fis.Read(&versionlastloaded, 1);
+            if (versionlastloaded > TS_VERSION) return _("File of newer version.");
+            auto xs = versionlastloaded >= 21 ? dis.Read8() : 1;
+            auto ys = versionlastloaded >= 21 ? dis.Read8() : 1;
+            zoomlevel = versionlastloaded >= 23 ? dis.Read8() : 0;
+            fakelasteditonload = wxDateTime::Now().GetValue();
+
+            loadimageids.clear();
+
+            for (;;) {
+                fis.Read(buf, 1);
+                switch (*buf) {
+                    case 'I':
+                    case 'J': {
+                        char iti = *buf;
+                        if (!imagetypes.contains(iti))
+                            return _("Found an image type that is not defined in this program.");
+                        if (versionlastloaded < 9) dis.ReadString();
+                        auto sc = versionlastloaded >= 19 ? dis.ReadDouble() : 1.0;
+                        vector<uint8_t> image_data;
+                        if (versionlastloaded >= 22) {
+                            auto imagelen = (size_t)dis.Read64();
+                            image_data.resize(imagelen);
+                            fis.Read(image_data.data(), imagelen);
+                        } else {
+                            off_t beforeimage = fis.TellI();
+
+                            if (iti == 'I') {
+                                uchar header[8];
+                                fis.Read(header, 8);
+                                uchar expected[] = {0x89, 'P', 'N', 'G', '\r', '\n', 0x1A, '\n'};
+                                if (memcmp(header, expected, 8)) return _("Corrupt PNG header.");
+                                dis.BigEndianOrdered(true);
+                                for (;;) {  // Skip all chunks.
+                                    wxInt32 len = dis.Read32();
+                                    char fourcc[4];
+                                    fis.Read(fourcc, 4);
+                                    fis.SeekI(len, wxFromCurrent);  // skip data
+                                    dis.Read32();                   // skip CRC
+                                    if (memcmp(fourcc, "IEND", 4) == 0) break;
+                                }
+                            } else if (iti == 'J') {
+                                wxImage im;
+                                im.LoadFile(fis);
+                                if (!im.IsOk()) { return _("JPEG file is corrupted!"); }
+                            }
+
+                            off_t afterimage = fis.TellI();
+                            fis.SeekI(beforeimage);
+                            auto sz = afterimage - beforeimage;
+                            image_data.resize(sz);
+                            fis.Read(image_data.data(), sz);
+                            fis.SeekI(afterimage);
+                        }
+                        if (!fis.IsOk()) image_data.clear();
+
+                        loadimageids.push_back(AddImageToList(sc, std::move(image_data), iti));
+                        break;
+                    }
+
+                    case 'D': {
+                        wxZlibInputStream zis(fis);
+                        if (!zis.IsOk()) return _("Cannot decompress file.");
+                        wxDataInputStream dis(zis);
+                        auto numcells = 0, textbytes = 0;
+                        unique_ptr<Cell> root(Cell::LoadWhich(dis, nullptr, numcells, textbytes, ics));
+                        if (!root) return _("File corrupted!");
+
+                        doc = NewTabDoc(true, insert_at);
+                        if (loadedfromtmp) {
+                            doc->undolistsizeatfullsave =
+                                -1;  // if not, user will lose tmp without warning when he closes
+                            doc->modified = true;
+                        }
+                        doc->InitWith(std::move(root), filename, ics, xs, ys);
+
+                        if (versionlastloaded >= 11) {
+                            for (;;) {
+                                auto tag = dis.ReadString();
+                                if (!tag.Len()) break;
+                                doc->tags[tag] =
+                                    versionlastloaded >= 24 ? dis.Read32() : g_tagcolor_default;
+                            }
+                        }
+
+                        auto end_loading_time = wxGetLocalTimeMillis();
+
+                        frame->SetStatus(wxString::Format(
+                            _("Loaded %s (%d cells, %d characters) in %lld milliseconds."),
+                            filename, numcells, textbytes, end_loading_time - start_loading_time));
+
+                        goto done;
+                    }
+
+                    default: return _("Corrupt block header.");
+                }
+            }
+        }
+
+    done:
+
+        doc->RefreshImageRefCount(false);
+        {
+            ThreadPool pool(std::thread::hardware_concurrency());
+            for (const auto &image : sys->imagelist) {
+                pool.enqueue(
+                    [](auto img) {
+                        if (img->trefc) img->Display();
+                    },
+                    image.get());
+            }
+        }  // wait until all tasks are finished
+
+        FileUsed(filename, doc);
+        doc->Zoom(zoomlevel, true);
+        if (anyimagesfailed)
+            wxMessageBox(_("PNG decode failed on some images in this document\nThey have been replaced by red squares."),
+                         _("PNG decoder failure"), wxOK, frame);
+
+        return wxEmptyString;
+    }
+
+    void FileUsed(const wxString &filename, Document *doc) {
+        frame->filehistory.AddFileToHistory(filename);
+        if (fswatch) {
+            doc->lastmodificationtime = wxFileName(filename).GetModificationTime();
+            const auto &directorypath = wxFileName(filename).GetPath(wxPATH_GET_VOLUME | wxPATH_GET_SEPARATOR);
+            if (watchedpaths.insert(directorypath).second) {
+                frame->watcher->Add(wxFileName(directorypath), wxFSW_EVENT_ALL);
+            }
+        }
+    }
+
+    wxString Open(const wxString &filename) {
+        if (!filename.empty()) {
+            auto msg = LoadDB(filename);
+            if (!msg.IsEmpty()) wxMessageBox(msg, filename, wxOK, frame);
+            return msg;
+        }
+        return _("Open file cancelled.");
+    }
+
+    void RememberOpenFiles() {
+        cfg->Write("lastopenfile", frame->GetCurrentTab()->doc->filename);
+        auto namedfiles = 0;
+        for(auto i: frame->notebook->GetPagesInDisplayOrder(frame->notebook->GetActiveTabCtrl())) {
+            auto canvas = static_cast<TSCanvas *>(frame->notebook->GetPage(i));
+            if (canvas->doc->filename.Len()) {
+                cfg->Write(wxString::Format("lastopenfile_%d", namedfiles), canvas->doc->filename);
+                namedfiles++;
+            }
+        }
+
+        cfg->Write("numopenfiles", namedfiles);
+        cfg->Flush();
+    }
+
+    void SaveCheck() {
+        loop(i, frame->notebook->GetPageCount()) {
+            static_cast<TSCanvas *>(frame->notebook->GetPage(i))
+                ->doc->AutoSave(!frame->IsActive(), i);
+        }
+    }
+
+    void SaveAll() {
+        loop(i, frame->notebook->GetPageCount()) {
+            frame->GetCurrentTab()->doc->Save(false);
+            frame->CycleTabs(1);
+        }
+    }
+
+    wxString Import(const wxString &filename, int action) {
+        if (!filename.empty()) {
+            wxBusyCursor wait;
+            switch (action) {
+                case A_IMPXML:
+                case A_IMPXMLA: {
+                    wxXmlDocument doc;
+                    if (!doc.Load(filename)) goto problem;
+                    unique_ptr<Cell> &root = InitDB(1);
+                    Cell *c = root->grid->cells[0].get();
+                    FillXML(c, doc.GetRoot(), action == A_IMPXMLA);
+                    if (!c->HasText() && c->grid) {
+                        unique_ptr<Cell> child = std::move(root->grid->cells[0]);
+                        root = std::move(child);
+                        root->parent = nullptr;
+                    }
+                    break;
+                }
+                case A_IMPTXTI:
+                case A_IMPTXTC:
+                case A_IMPTXTS:
+                case A_IMPTXTT: {
+                    wxFFile file(filename);
+                    if (!file.IsOpened()) goto problem;
+                    wxString content;
+                    if (!file.ReadAll(&content)) goto problem;
+                    const auto &lines = wxStringTokenize(content, LINE_SEPARATOR);
+
+                    if (lines.size()) switch (action) {
+                            case A_IMPTXTI: {
+                                FillRows(InitDB(1)->grid, lines, CountCol(lines[0]), 0, 0);
+                            }; break;
+                            case A_IMPTXTC:
+                                InitDB(1, static_cast<int>(lines.size()))
+                                    ->grid->CSVImport(lines, L',');
+                                break;
+                            case A_IMPTXTS:
+                                InitDB(1, static_cast<int>(lines.size()))
+                                    ->grid->CSVImport(lines, L';');
+                                break;
+                            case A_IMPTXTT:
+                                InitDB(1, static_cast<int>(lines.size()))
+                                    ->grid->CSVImport(lines, L'\t');
+                                break;
+                        }
+                    break;
+                }
+            }
+            Document *doc = frame->GetCurrentTab()->doc.get();
+            doc->modified = true;
+            doc->UpdateFileName();
+            doc->selected = Selection();
+            doc->begindrag = Selection();
+            doc->canvas->Refresh();
+        }
+        return wxEmptyString;
+    problem:
+        wxMessageBox(_("couldn't import file!"), filename, wxOK, frame);
+        return _("File load error.");
+    }
+
+    int GetXMLNodes(wxXmlNode *node, auto &nodes, vector<wxXmlAttribute *> *attributes = nullptr,
+                    bool attributestoo = false) {
+        for (auto child = node->GetChildren(); child; child = child->GetNext()) {
+            if (child->GetType() == wxXML_ELEMENT_NODE) nodes.push_back(child);
+        }
+        if (attributestoo && attributes)
+            for (auto attribute = node->GetAttributes(); attribute;
+                 attribute = attribute->GetNext()) {
+                attributes->push_back(attribute);
+            }
+        return nodes.size() + (attributes ? attributes->size() : 0);
+    }
+
+    void FillXML(Cell *c, wxXmlNode *node, bool attributestoo) {
+        const auto &words = wxStringTokenize(
+            node->GetType() == wxXML_ELEMENT_NODE ? node->GetNodeContent() : node->GetContent());
+        loop(i, words.GetCount()) {
+            if (c->text.t.Len()) c->text.t.Append(L' ');
+            c->text.t.Append(words[i]);
+        }
+
+        if (node->GetName() == "cell") {
+            c->text.relsize = -wxAtoi(node->GetAttribute("relsize", "0"));
+            c->text.stylebits = wxAtoi(node->GetAttribute("stylebits", "0"));
+            c->cellcolor =
+                std::stoi(node->GetAttribute("colorbg", "0xFFFFFF").ToStdString(), nullptr, 0);
+            c->textcolor =
+                std::stoi(node->GetAttribute("colorfg", "0x000000").ToStdString(), nullptr, 0);
+            c->celltype = wxAtoi(node->GetAttribute("type", "0"));
+        }
+
+        vector<wxXmlNode *> nodes;
+        vector<wxXmlAttribute *> attributes;
+        auto numrows = GetXMLNodes(node, nodes, &attributes, attributestoo);
+        if (!numrows) return;
+
+        if (nodes.size() == 1 && (!c->text.t.Len() || nodes[0]->IsWhitespaceOnly()) &&
+            nodes[0]->GetName() != "row") {
+            FillXML(c, nodes[0], attributestoo);
+        } else {
+            auto allrow = node->GetName() == "grid";
+            for (auto node : nodes)
+                if (node->GetName() != "row") {
+                    allrow = false;
+                    break;
+                }
+            if (allrow) {
+                int desiredxs;
+                loopv(i, nodes) {
+                    vector<wxXmlNode *> ins;
+                    auto xs = GetXMLNodes(nodes[i], ins);
+                    if (!i) {
+                        desiredxs = xs ? xs : 1;
+                        c->AddGrid(desiredxs, nodes.size());
+                        SetGridSettingsFromXML(c, node);
+                    }
+                    loop(j, desiredxs) if (ins.size() > j)
+                        FillXML(c->grid->C(j, i).get(), ins[j], attributestoo);
+                }
+            } else {
+                c->AddGrid(1, numrows);
+                SetGridSettingsFromXML(c, node);
+                loopv(i, attributes) c->grid->C(0, i)->text.t = attributes[i]->GetValue();
+                loopv(i, nodes)
+                    FillXML(c->grid->C(0, i + attributes.size()).get(), nodes[i], attributestoo);
+            }
+        }
+    }
+
+    void SetGridSettingsFromXML(Cell *c, wxXmlNode *node) {
+        c->grid->folded = wxAtoi(node->GetAttribute("folded", "0"));
+        c->grid->bordercolor = std::stoi(
+            node->GetAttribute("bordercolor", wxString() << g_bordercolor_default).ToStdString(),
+            nullptr, 0);
+        c->grid->user_grid_outer_spacing = wxAtoi(
+            node->GetAttribute("outerspacing", wxString() << g_usergridouterspacing_default));
+    }
+
+    int CountCol(const auto &s) {
+        auto col = 0;
+        while (s[col] == ' ' || s[col] == '\t') col++;
+        return col;
+    }
+
+    int FillRows(Grid *g, const wxArrayString &as, int column, int startrow, int starty) {
+        auto y = starty;
+        for (int i = startrow, n = as.size(); i < n; i++) {
+            auto s = as[i];
+            auto col = CountCol(s);
+            if (col < column && startrow != 0) return i;
+            if (col > column) {
+                auto c = g->C(0, y - 1).get();
+                auto sg = c->grid;
+                i = FillRows(sg ? sg : c->AddGrid(), as, col, i, sg ? sg->ys : 0) - 1;
+            } else {
+                if (g->ys <= y) g->InsertCells(-1, y, 0, 1);
+                auto &t = g->C(0, y)->text;
+                t.t = s.Trim(false);
+                y++;
+            }
+        }
+        return static_cast<int>(as.size());
+    }
+
+    int AddImageToList(double scale, auto &&data, char type) {
+        auto hash = CalculateHash(data);
+        loopv(i, imagelist) {
+            if (imagelist[i]->hash == hash && imagelist[i]->type == type) return i;
+        }
+        imagelist.push_back(make_unique<Image>(hash, scale, std::move(data), type));
+        return imagelist.size() - 1;
+    }
+
+    void ImageSize(wxBitmap *bm, int &xs, int &ys) {
+        if (!bm) return;
+        xs = bm->GetWidth();
+        ys = bm->GetHeight();
+    }
+
+    void ImageDraw(wxBitmap *bm, wxDC &dc, int x, int y) { dc.DrawBitmap(*bm, x, y); }
+};
