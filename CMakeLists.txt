@@ -12,8 +12,8 @@ else()
 endif()
 
 project(TreeSheets
-    DESCRIPTION "A free-form hierarchical data organizer"
-    HOMEPAGE_URL "https://github.com/aardappel/treesheets"
+    DESCRIPTION "TreeSheets"
+    HOMEPAGE_URL "https://github.com/ib-bsb-br/TreeSheets"
     VERSION "${TREESHEETS_VERSION}")
 
 ### Settings
