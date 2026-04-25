@@ -137,24 +137,6 @@ if(ENABLE_LOBSTER)
     target_compile_definitions(TreeSheets PRIVATE "ENABLE_LOBSTER=1")
 endif(ENABLE_LOBSTER)
 
-if(APPLE)
-    set_target_properties(TreeSheets PROPERTIES
-        MACOSX_BUNDLE TRUE
-        MACOSX_BUNDLE_BUNDLE_NAME "${CMAKE_PROJECT_NAME}"
-        MACOSX_BUNDLE_BUNDLE_VERSION "${CMAKE_PROJECT_VERSION}"
-        MACOSX_BUNDLE_COPYRIGHT "Copyright © 2025 Wouter van Oortmerssen and Tobias Predel. All rights reserved."
-        MACOSX_BUNDLE_GUI_IDENTIFIER "com.strlen.TreeSheets"
-        MACOSX_BUNDLE_ICON_FILE "App.icns"
-        MACOSX_BUNDLE_INFO_PLIST "${CMAKE_SOURCE_DIR}/platform/osx/Info.plist"
-    )
-elseif(WIN32)
-    target_sources(TreeSheets PRIVATE
-        platform/win/treesheets.rc)
-    set_target_properties(TreeSheets PROPERTIES
-        WIN32_EXECUTABLE TRUE
-    )
-endif()
-
 target_precompile_headers(TreeSheets PUBLIC src/stdafx.h)
 
 ## Link wxWidgets and lobster-impl into TreeSheets
@@ -214,10 +196,7 @@ endif()
 
 install(TARGETS TreeSheets DESTINATION ${TREESHEETS_BINDIR})
 install(DIRECTORY TS/docs DESTINATION ${TREESHEETS_DOCDIR})
-file(GLOB treesheets_readme_files "TS/readme*.html")
-install(FILES ${treesheets_readme_files} DESTINATION ${TREESHEETS_DOCDIR})
 install(DIRECTORY TS/examples DESTINATION ${TREESHEETS_DOCDIR})
-
 install(DIRECTORY TS/images DESTINATION ${TREESHEETS_PKGDATADIR})
 install(DIRECTORY TS/scripts DESTINATION ${TREESHEETS_PKGDATADIR})
 if(ENABLE_LOBSTER)
@@ -230,68 +209,14 @@ if(ENABLE_LOBSTER)
     install(FILES ${lobster_modules} DESTINATION ${TREESHEETS_PKGDATADIR}/scripts/modules)
 endif(ENABLE_LOBSTER)
 
-## Apple icon set
-if(APPLE)
-    install(
-        FILES "platform/osx/App.icns"
-        DESTINATION "TreeSheets.app/Contents/Resources"
-    )
-endif()
-
-## Localization
-
-# Install translations to correct platform-specific path.
-# See: https://docs.wxwidgets.org/trunk/overview_i18n.html#overview_i18n_mofiles
-file(GLOB mo_files "${CMAKE_CURRENT_SOURCE_DIR}/TS/translations/*/ts.mo")
-foreach(mo_file IN LISTS mo_files)
-    cmake_path(GET mo_file PARENT_PATH locale_dir)
-    cmake_path(GET locale_dir FILENAME locale)
-
-    if(WIN32 OR TREESHEETS_RELOCATABLE_INSTALLATION)
-        # Paths must be relative to use with CPack
-        install(FILES "${mo_file}" DESTINATION "translations/${locale}")
-    elseif(APPLE)
-        # Paths must be relative to use with CPack
-        install(FILES "${mo_file}" DESTINATION "TreeSheets.app/Contents/Resources/translations/${locale}.lproj")
-    else()
-        # Falling back to GNU scheme
-        install(FILES "${mo_file}" DESTINATION "${CMAKE_INSTALL_LOCALEDIR}/${locale}/LC_MESSAGES")
-    endif()
-endforeach()
-
 ### Packaging with CPack
 
-set(CPACK_PACKAGE_VENDOR "Wouter van Oortmerssen")
-if(APPLE)
-    set(CPACK_GENERATOR "DragNDrop")
-elseif(WIN32)
-    set(CPACK_GENERATOR "INNOSETUP" "ZIP")
-    set(CPACK_PACKAGE_INSTALL_DIRECTORY ${CMAKE_PROJECT_NAME})
-    set(CPACK_PACKAGE_EXECUTABLES "TreeSheets" "TreeSheets")
-    if(CMAKE_VS_PLATFORM_NAME STREQUAL "ARM64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "ARM64|arm64")
-        set(CPACK_INNOSETUP_SETUP_ArchitecturesAllowed "arm64")
-        set(ARCH_NAME "winarm64")
-    else()
-        set(CPACK_INNOSETUP_SETUP_ArchitecturesAllowed "x64compatible")
-        set(ARCH_NAME "winx64")
-    endif()
-    set(CPACK_PACKAGE_FILE_NAME "${CMAKE_PROJECT_NAME}-${PROJECT_VERSION}-${ARCH_NAME}")
-    set(CPACK_INNOSETUP_RUN_EXECUTABLES "TreeSheets")
-    set(CPACK_INNOSETUP_PACKAGE_NAME ${CMAKE_PROJECT_NAME})
-    set(CPACK_INNOSETUP_LANGUAGES
-        "brazilianPortuguese" "english" "french" "german" 
-        "italian" "korean" "russian"
-    )
-    set(CPACK_INNOSETUP_SETUP_PrivilegesRequired "lowest")
-    set(CPACK_INNOSETUP_IGNORE_README_PAGE ON)
-    set(CPACK_INNOSETUP_IGNORE_LICENSE_PAGE ON)
-    set(CPACK_INNOSETUP_USE_MODERN_WIZARD ON)
-else()
-    set(CPACK_GENERATOR "DEB")
-    set(CPACK_DEBIAN_PACKAGE_SECTION "contrib/text")
-    set(CPACK_DEBIAN_PACKAGE_MAINTAINER "Wouter van Oortmerssen")
-    set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
-    set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
-    set(CPACK_DEBIAN_PACKAGE_EPOCH 2)
-endif()
+set(CPACK_PACKAGE_VENDOR "TreeSheets")
+set(CPACK_GENERATOR "DEB")
+set(CPACK_DEBIAN_PACKAGE_SECTION "contrib/text")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "TreeSheets")
+set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+set(CPACK_DEBIAN_FILE_NAME DEB-DEFAULT)
+set(CPACK_DEBIAN_PACKAGE_EPOCH 2)
+
 include(CPack)
