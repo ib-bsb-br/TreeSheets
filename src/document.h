@@ -189,8 +189,17 @@ struct Document {
         }
 
         if (!istempfile && sys->makebaks && ::wxFileExists(filename)) {
-            ::wxRemoveFile(sys->BakName(filename));
-            ::wxRenameFile(filename, sys->BakName(filename));
+            auto bakname = sys->BakName(filename);
+            auto bakold = bakname + ".old";
+            if (::wxFileExists(bakold)) ::wxRemoveFile(bakold);
+            if (::wxFileExists(bakname) && !::wxRenameFile(bakname, bakold, true)) {
+                return _("Error rotating backup file.");
+            }
+            if (!::wxRenameFile(filename, bakname)) {
+                if (::wxFileExists(bakold)) ::wxRenameFile(bakold, bakname, true);
+                return _("Error creating backup file.");
+            }
+            if (::wxFileExists(bakold)) ::wxRemoveFile(bakold);
         }
 
         if (!::wxRenameFile(savefilename, targetfilename, true)) {
@@ -2286,9 +2295,10 @@ struct Document {
         if (c->parent && c->parent->grid) {
             Grid *g = c->parent->grid.get();
             Selection s = g->FindCell(c);
+            Cell *old_parent = c->parent;
             std::swap(ui->clone, g->C(s.x, s.y));
             c = g->C(s.x, s.y).get();
-            c->parent = ui->clone->parent;
+            c->parent = old_parent;
         } else {
             std::swap(ui->clone, root);
             c = root.get();

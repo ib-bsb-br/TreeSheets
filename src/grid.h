@@ -507,8 +507,13 @@ struct Grid {
                 if (nc) {
                     c = std::move(nc);
                 } else {
-                    int sx = nxs ? max(0, min(dx - 1, xs - 1)) : x;
-                    int sy = nxs ? y : max(0, min(dy - 1, ys - 1));
+                    int sx = x;
+                    int sy = y;
+                    if (nxs) {
+                        sx = dx > 0 ? dx - 1 : min(nxs, xs - 1);
+                    } else {
+                        sy = dy > 0 ? dy - 1 : min(nys, ys - 1);
+                    }
                     Cell *colcell = C(sx, sy).get();
                     c = make_unique<Cell>(cell, colcell);
                     if (colcell) c->text.relsize = colcell->text.relsize;

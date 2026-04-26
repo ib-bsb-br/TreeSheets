@@ -123,10 +123,14 @@ struct System {
         auto numfiles = static_cast<int>(cfg->Read("numopenfiles", static_cast<long>(0)));
         wxString focusfile = cfg->Read("lastopenfile", "");
         int selection = -1;
+        int loadedtabs = 0;
         loop(i, numfiles) {
             wxString filename;
             cfg->Read(wxString::Format("lastopenfile_%d", i), &filename);
-            if (!LoadDB(filename) && filename == focusfile) selection = i;
+            if (LoadDB(filename).IsEmpty()) {
+                if (filename == focusfile) selection = loadedtabs;
+                loadedtabs++;
+            }
         }
 
         if (!filename.IsEmpty()) {
