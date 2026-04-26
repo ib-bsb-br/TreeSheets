@@ -1,28 +1,27 @@
-This file is a merged representation of the entire TreeSheets source-code, combined into a single document.
-
-# File Summary
+# This file is a merged representation of the entire TreeSheets source-code, combined into a single document.
 
 ## Purpose
-This file contains a packed representation of the entire TreeSheets repository's contents.
-It is designed to be easily consumable by AI systems for analysis, code review, or other automated processes.
+- This file contains a packed representation of the entire TreeSheets repository's contents.
+- It is designed to be easily consumable by AI systems for analysis, code review, or other automated processes.
 
 ## File Format
-The content is organized as follows:
-1. This summary section
-2. Repository information
-3. Directory structure
-4. Repository files
-5. Multiple file entries, each consisting of:
-  a. A header with the file path (## File: path/to/file)
-  b. The full contents of the file in a code block
+- The content is organized as follows:
+  1. This summary section
+  2. Repository information
+  3. Directory structure
+  4. Repository files
+  5. Multiple file entries, each consisting of:
+    a. A header with the file path (## File: path/to/file)
+    b. The full contents of the file in a code block
 
 ## Usage Guidelines
 - This file should be treated as read-only. Any changes should be made to the original repository files, not this packed version.
 - When processing this file, use the file path to distinguish between different files in the repository.
 
 ## Notes
-- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files
-- Content has been formatted for parsing in markdown style
+- Binary files are not included in this packed representation. Please refer to the Repository Structure section for a complete list of file paths, including binary files.
+- Line numbers have been added to the beginning of each line.
+- Content has been formatted for parsing in markdown style.
 
 # Directory Structure
 ```
