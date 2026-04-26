@@ -152,13 +152,13 @@ struct System {
         auto language = trans ? trans->GetBestTranslation("ts") : wxString("");
 
         if (language.Len() == 5 &&
-            !LoadDB(frame->app->GetDocPath("examples/tutorial-" + language + ".cts"))[0]) {
+            LoadDB(frame->app->GetDocPath("examples/tutorial-" + language + ".cts")).IsEmpty()) {
             return;
         }
 
         language.Truncate(2);
         if (language.Len() == 2 &&
-            !LoadDB(frame->app->GetDocPath("examples/tutorial-" + language + ".cts"))[0]) {
+            LoadDB(frame->app->GetDocPath("examples/tutorial-" + language + ".cts")).IsEmpty()) {
             return;
         }
 
