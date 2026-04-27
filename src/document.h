@@ -188,13 +188,41 @@ struct Document {
             dos.WriteString(wxEmptyString);
         }
 
+        wxString backupwarning;
+        wxString backupfilename;
+        wxString stagedbackup;
+        bool stagedbackupready = false;
+
         if (!istempfile && sys->makebaks && ::wxFileExists(filename)) {
-            ::wxRemoveFile(sys->BakName(filename));
-            ::wxRenameFile(filename, sys->BakName(filename));
+            backupfilename = sys->BakName(filename);
+            stagedbackup = sys->NewName(backupfilename);
+
+            if (::wxFileExists(stagedbackup) && !::wxRemoveFile(stagedbackup)) {
+                ::wxRemoveFile(savefilename);
+                return _("Error creating backup file.");
+            }
+
+            if (!::wxRenameFile(filename, stagedbackup, false)) {
+                ::wxRemoveFile(savefilename);
+                return _("Error creating backup file.");
+            }
+
+            stagedbackupready = true;
         }
 
-        if (!::wxRenameFile(savefilename, targetfilename, true)) {
+        if (!::wxRenameFile(savefilename, targetfilename, !stagedbackupready)) {
+            if (stagedbackupready) {
+                ::wxRenameFile(stagedbackup, filename, false);
+            }
             return _("Error renaming temporary file.");
+        }
+
+        if (stagedbackupready) {
+            if (::wxFileExists(backupfilename) && !::wxRemoveFile(backupfilename)) {
+                backupwarning = _("Saved file, but could not replace the backup file.");
+            } else if (!::wxRenameFile(stagedbackup, backupfilename, false)) {
+                backupwarning = _("Saved file, but could not finalize the backup file.");
+            }
         }
 
         lastmodsinceautosave = 0;
@@ -217,6 +245,7 @@ struct Document {
         }
         UpdateFileName(page);
         if (success) *success = true;
+        if (!backupwarning.IsEmpty()) return backupwarning;
         return wxString::Format(_("Saved %s successfully (in %lld milliseconds)."), filename,
                                 end_saving_time - start_saving_time);
     }
@@ -2284,11 +2313,12 @@ struct Document {
         Cell *c = WalkPath(ui->path);
 
         if (c->parent && c->parent->grid) {
-            Grid *g = c->parent->grid.get();
+            Cell *old_parent = c->parent;
+            Grid *g = old_parent->grid.get();
             Selection s = g->FindCell(c);
             std::swap(ui->clone, g->C(s.x, s.y));
             c = g->C(s.x, s.y).get();
-            c->parent = ui->clone->parent;
+            c->parent = old_parent;
         } else {
             std::swap(ui->clone, root);
             c = root.get();
