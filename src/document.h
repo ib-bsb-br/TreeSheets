@@ -188,13 +188,37 @@ struct Document {
             dos.WriteString(wxEmptyString);
         }
 
+        wxString backupwarning;
+        wxString backupfilename;
+        wxString bakold;
+        bool stagedbackup = false;
         if (!istempfile && sys->makebaks && ::wxFileExists(filename)) {
-            ::wxRemoveFile(sys->BakName(filename));
-            ::wxRenameFile(filename, sys->BakName(filename));
+            backupfilename = sys->BakName(filename);
+            bakold = sys->NewName(backupfilename);
+            if (::wxFileExists(bakold) && !::wxRemoveFile(bakold)) {
+                ::wxRemoveFile(savefilename);
+                return _("Error preparing backup file.");
+            }
+            if (::wxFileExists(backupfilename) && !::wxRenameFile(backupfilename, bakold, false)) {
+                ::wxRemoveFile(savefilename);
+                return _("Error preparing backup file.");
+            }
+            if (!::wxRenameFile(filename, backupfilename, false)) {
+                if (::wxFileExists(bakold)) ::wxRenameFile(bakold, backupfilename, false);
+                ::wxRemoveFile(savefilename);
+                return _("Error creating backup file.");
+            }
+            stagedbackup = true;
         }
 
-        if (!::wxRenameFile(savefilename, targetfilename, true)) {
+        if (!::wxRenameFile(savefilename, targetfilename, !stagedbackup)) {
+            if (stagedbackup) ::wxRenameFile(backupfilename, filename, false);
+            if (::wxFileExists(bakold)) ::wxRenameFile(bakold, backupfilename, false);
             return _("Error renaming temporary file.");
+        }
+
+        if (stagedbackup && ::wxFileExists(bakold) && !::wxRemoveFile(bakold)) {
+            backupwarning = _("Saved file, but could not remove old backup file.");
         }
 
         lastmodsinceautosave = 0;
@@ -217,8 +241,10 @@ struct Document {
         }
         UpdateFileName(page);
         if (success) *success = true;
-        return wxString::Format(_("Saved %s successfully (in %lld milliseconds)."), filename,
-                                end_saving_time - start_saving_time);
+        auto savemsg = wxString::Format(_("Saved %s successfully (in %lld milliseconds)."), filename,
+                                        end_saving_time - start_saving_time);
+        if (!backupwarning.IsEmpty()) savemsg += " " + backupwarning;
+        return savemsg;
     }
 
     void DrawSelect(wxDC &dc, Selection &s) {
@@ -2284,11 +2310,12 @@ struct Document {
         Cell *c = WalkPath(ui->path);
 
         if (c->parent && c->parent->grid) {
-            Grid *g = c->parent->grid.get();
+            Cell *old_parent = c->parent;
+            Grid *g = old_parent->grid.get();
             Selection s = g->FindCell(c);
             std::swap(ui->clone, g->C(s.x, s.y));
             c = g->C(s.x, s.y).get();
-            c->parent = ui->clone->parent;
+            c->parent = old_parent;
         } else {
             std::swap(ui->clone, root);
             c = root.get();
